@@ -1,0 +1,86 @@
+{
+  "id": "project",
+  "title": "Leaf Rota",
+  "guide": {
+    "name": "Nyasha",
+    "role": "Greenleaf Café · your guide"
+  },
+  "welcome": "Hi, I'm Nyasha. Thanks for helping us test our new ordering site. I'll talk you through four short tasks, one at a time. There are no wrong answers. We're testing the site, not you.",
+  "prototype": {
+    "start": "index.html"
+  },
+  "tasks": [
+    {
+      "title": "Plants needing water now and \"Done today\"",
+      "say": "",
+      "audio": {
+        "type": "voice"
+      },
+      "check": {
+        "type": "page",
+        "match": "#today"
+      }
+    },
+    {
+      "title": "Plant details with care tip and watering history",
+      "say": "",
+      "audio": {
+        "type": "voice"
+      },
+      "check": {
+        "type": "page",
+        "match": "#plant-fern"
+      }
+    },
+    {
+      "title": "Mark as watered form with a \"who did it\" choice",
+      "say": "",
+      "audio": {
+        "type": "voice"
+      },
+      "check": {
+        "type": "page",
+        "match": "#water-fern"
+      }
+    },
+    {
+      "title": "All plants table",
+      "say": "",
+      "audio": {
+        "type": "voice"
+      },
+      "check": {
+        "type": "page",
+        "match": "#plants"
+      }
+    },
+    {
+      "title": "Add a new plant form",
+      "say": "",
+      "audio": {
+        "type": "voice"
+      },
+      "check": {
+        "type": "page",
+        "match": "#add-plant"
+      }
+    },
+    {
+      "title": "Top navigation to Today, All plants and Add plant",
+      "say": "",
+      "audio": {
+        "type": "voice"
+      },
+      "check": {
+        "type": "click",
+        "match": "nav-today"
+      }
+    }
+  ],
+  "thanks": "Your answers help us fix the confusing bits before the site goes live.",
+  "results": {
+    "type": "download"
+  },
+  "voice": "en-GB",
+  "minutes": 5
+}
