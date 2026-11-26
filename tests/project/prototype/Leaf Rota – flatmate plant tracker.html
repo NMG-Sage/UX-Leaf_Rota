@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light">
+<title>Leaf Rota – flatmate plant tracker</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🌿</text></svg>">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<style>
+  /* Small custom CSS only: page padding for phones, visible keyboard focus */
+  :root { box-sizing: border-box; padding-top: env(safe-area-inset-top, 0px); padding-bottom: env(safe-area-inset-bottom, 0px); color-scheme: light; }
+  a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, [tabindex="-1"]:focus-visible { outline: 3px solid #4338ca; outline-offset: 2px; }
+  [tabindex="-1"]:focus { outline: none; }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-900 antialiased min-h-screen flex flex-col" style="background:#f8fafc;color:#0f172a">
+
+<button type="button" id="skip-link" class="sr-only focus:not-sr-only focus:absolute focus:left-2 focus:top-2 focus:z-10 focus:rounded-md focus:bg-white focus:px-3 focus:py-2">Skip to main content</button>
+
+<!-- ===== SHARED HEADER + NAVIGATION (full navigation, no burger menu) ===== -->
+<header class="border-b border-slate-300 bg-white">
+  <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-3">
+    <p class="text-lg font-bold text-indigo-800">🌿 Leaf Rota</p>
+    <nav aria-label="Main">
+      <ul class="flex flex-wrap gap-1" id="nav"></ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main" tabindex="-1" class="mx-auto w-full max-w-5xl flex-1 px-4 py-8">
+  <div id="app"></div>
+</main>
+
+<!-- ===== FOOTER ===== -->
+<footer class="border-t border-slate-300 bg-white">
+  <div class="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-2 px-4 py-4 text-sm text-slate-700">
+    <p>Prototype for 4 flatmates at 14 Alder Road. Nothing is saved.</p>
+    <a href="#today" id="reset-prototype" class="underline hover:text-indigo-800">Reset prototype</a>
+  </div>
+</footer>
+
+<script>
+/* ===== DATA (in memory only) ===== */
+const FLATMATES = ['Amira', 'Ben', 'Chloe', 'Dev'];
+const NOT_YET = "This part isn't in the prototype yet.";
+// h = watering history: [days ago, who], newest first
+const seed = () => [
+  { id:'fern', name:'Fern', room:'Living room', every:3, color:'bg-green-600', tip:'Keep the soil damp, never soggy. Ferns like humidity, so mist the leaves on warm days.', h:[[3,'Amira'],[6,'Dev'],[9,'Ben'],[12,'Chloe']] },
+  { id:'cactus', name:'Cactus', room:'Kitchen windowsill', every:14, color:'bg-lime-700', tip:'Let the soil dry out completely between drinks. In winter it needs even less.', h:[[6,'Chloe'],[20,'Ben'],[34,'Amira']] },
+  { id:'snake-plant', name:'Snake plant', room:'Hallway', every:10, color:'bg-teal-700', tip:'Water the soil, not the leaves. Overwatering is the quickest way to rot the roots.', h:[[10,'Dev'],[20,'Amira'],[30,'Chloe']] },
+  { id:'pothos', name:'Pothos', room:'Dev’s bedroom', every:7, color:'bg-emerald-700', tip:'Water when the top 2 cm of soil feels dry. Drooping leaves usually mean it is thirsty.', h:[[8,'Ben'],[15,'Dev'],[22,'Amira']] },
+  { id:'basil', name:'Basil', room:'Kitchen counter', every:2, color:'bg-green-800', tip:'Water in the morning at the base of the plant. Pinch off flower buds to keep the leaves coming.', h:[[2,'Chloe'],[4,'Chloe'],[6,'Ben'],[8,'Amira']] },
+  { id:'peace-lily', name:'Peace lily', room:'Living room', every:5, color:'bg-cyan-800', tip:'It droops dramatically when thirsty, then perks up within hours. Use room-temperature water.', h:[[2,'Amira'],[7,'Dev'],[12,'Ben']] }
+];
+let plants = seed();
+let state = { msg: null, werr: false, form: null };
+
+/* ===== HELPERS ===== */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const get = id => plants.find(p => p.id === id);
+const done = p => p.h.length > 0 && p.h[0][0] === 0;
+const left = p => p.h.length ? p.every - p.h[0][0] : 0; // days until due (<=0 means due)
+const dstr = n => { const d = new Date(Date.now() + n * 864e5); return d.toLocaleDateString('en-GB', { weekday:'short', day:'numeric', month:'short' }); };
+const when = ago => ago === 0 ? 'Today' : ago === 1 ? 'Yesterday' : dstr(-ago);
+const every = n => n === 1 ? 'Every day' : 'Every ' + n + ' days';
+const lastText = p => p.h.length ? when(p.h[0][0]) : 'Not yet';
+const nextText = p => left(p) > 0 ? dstr(left(p)) : 'Today';
+const statusText = p => done(p) ? 'Done today' : left(p) < 0 ? 'Overdue by ' + (-left(p)) + (left(p) === -1 ? ' day' : ' days') : left(p) === 0 ? 'Due today' : 'Due in ' + left(p) + (left(p) === 1 ? ' day' : ' days');
+const badge = p => {
+  const c = done(p) ? 'bg-green-100 text-green-900' : left(p) < 0 ? 'bg-red-100 text-red-900' : left(p) === 0 ? 'bg-amber-100 text-amber-900' : 'bg-slate-200 text-slate-900';
+  return `<span class="inline-block rounded-full px-2.5 py-0.5 text-xs font-semibold ${c}">${statusText(p)}</span>`;
+};
+const B1 = 'inline-block rounded-md bg-indigo-700 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-800';
+const B2 = 'inline-block rounded-md border border-slate-400 bg-white px-4 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-100';
+const swatch = p => `<div aria-hidden="true" class="h-14 w-14 shrink-0 rounded-lg ${p.color}"></div>`;
+const H1 = 'mb-2 text-3xl font-bold tracking-tight';
+
+/* ===== SCREENS ===== */
+
+/* ---------- SCREEN 1: TODAY (#today) ---------- */
+function screenToday() {
+  const due = plants.filter(p => !done(p) && left(p) <= 0);
+  const dn = plants.filter(done);
+  const card = (p, isDone) => `
+    <li class="flex flex-wrap items-center gap-4 rounded-lg border border-slate-300 bg-white p-4">
+      ${swatch(p)}
+      <div class="min-w-[10rem] flex-1">
+        <h3 class="text-lg font-semibold">${esc(p.name)}</h3>
+        <p class="text-sm text-slate-700">${esc(p.room)} · ${every(p.every)}</p>
+        <p class="mt-1">${isDone ? `<span class="text-sm text-slate-700">Watered by ${esc(p.h[0][1])} today</span>` : badge(p)}</p>
+      </div>
+      <div class="flex flex-wrap gap-2">
+        ${isDone ? `<a href="#plant-${p.id}" id="view-${p.id}" class="${B2}">Details for ${esc(p.name)}</a><button type="button" id="undo-${p.id}" data-undo="${p.id}" class="${B2}">Undo ${esc(p.name)}</button>`
+                 : `<a href="#plant-${p.id}" id="view-${p.id}" class="${B2}">Details for ${esc(p.name)}</a><a href="#water-${p.id}" id="water-${p.id}" class="${B1}">Water ${esc(p.name)}</a>`}
+      </div>
+    </li>`;
+  return `
+    <h1 class="${H1}" tabindex="-1" id="page-title">Today</h1>
+    <p class="mb-8 text-slate-700">${due.length === 0 ? 'Everything is watered. Nice work, flat.' : due.length + (due.length === 1 ? ' plant needs' : ' plants need') + ' water today.'} ${dn.length} done so far.</p>
+    <section aria-labelledby="needs-h" class="mb-10">
+      <h2 id="needs-h" class="mb-3 text-xl font-semibold">Needs water today</h2>
+      ${due.length ? `<ul class="space-y-3">${due.map(p => card(p, false)).join('')}</ul>` : '<p class="rounded-lg border border-dashed border-slate-400 bg-white p-4 text-slate-700">Nothing left to water. Check <a href="#plants" class="underline text-indigo-800">all plants</a> to see what is due next.</p>'}
+    </section>
+    <section aria-labelledby="done-h">
+      <h2 id="done-h" class="mb-3 text-xl font-semibold">Done today</h2>
+      ${dn.length ? `<ul class="space-y-3">${dn.map(p => card(p, true)).join('')}</ul>` : '<p class="rounded-lg border border-dashed border-slate-400 bg-white p-4 text-slate-700">No plants watered yet today.</p>'}
+    </section>`;
+}
+
+/* ---------- SCREEN 2: PLANT DETAILS (#plant-fern, #plant-cactus, ...) ---------- */
+function screenDetails(p) {
+  return `
+    <p class="mb-4"><a href="#plants" id="back-plants" class="text-indigo-800 underline">Back to all plants</a></p>
+    <div class="mb-6 flex flex-wrap items-center gap-4">
+      ${swatch(p)}
+      <div><h1 class="${H1} !mb-1" tabindex="-1" id="page-title">${esc(p.name)}</h1>${badge(p)}</div>
+    </div>
+    <div class="grid gap-6 md:grid-cols-2">
+      <section aria-labelledby="care-h" class="rounded-lg border border-slate-300 bg-white p-5">
+        <h2 id="care-h" class="mb-2 text-xl font-semibold">Care tip</h2>
+        <p class="mb-4 text-slate-800">${esc(p.tip)}</p>
+        <dl class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
+          <dt class="font-semibold">Room</dt><dd>${esc(p.room)}</dd>
+          <dt class="font-semibold">Schedule</dt><dd>${every(p.every)}</dd>
+          <dt class="font-semibold">Last watered</dt><dd>${lastText(p)}${p.h.length ? ' by ' + esc(p.h[0][1]) : ''}</dd>
+          <dt class="font-semibold">Next due</dt><dd>${done(p) ? dstr(p.every) : nextText(p)}</dd>
+        </dl>
+        <div class="mt-5 flex flex-wrap gap-2">
+          ${done(p) ? `<button type="button" id="undo-${p.id}" data-undo="${p.id}" class="${B2}">Undo ${esc(p.name)}</button>`
+                    : `<a href="#water-${p.id}" id="mark-watered-${p.id}" class="${B1}">Mark ${esc(p.name)} as watered</a>`}
+          <button type="button" id="edit-plant" data-nope class="${B2}">Edit plant</button>
+        </div>
+      </section>
+      <section aria-labelledby="hist-h" class="rounded-lg border border-slate-300 bg-white p-5">
+        <h2 id="hist-h" class="mb-2 text-xl font-semibold">Watering history</h2>
+        ${p.h.length ? `<table class="w-full text-left text-sm"><caption class="sr-only">Past waterings for ${esc(p.name)}</caption>
+          <thead><tr class="border-b border-slate-300"><th scope="col" class="py-2 pr-4">Date</th><th scope="col" class="py-2">Watered by</th></tr></thead>
+          <tbody>${p.h.map(r => `<tr class="border-b border-slate-200"><td class="py-2 pr-4">${when(r[0])}</td><td class="py-2">${esc(r[1])}</td></tr>`).join('')}</tbody></table>`
+          : '<p class="text-slate-700">No waterings recorded yet. Be the first to water it.</p>'}
+      </section>
+    </div>`;
+}
+
+/* ---------- SCREEN 3: MARK AS WATERED (#water-fern, ...) ---------- */
+function screenWater(p) {
+  if (done(p)) return `
+    <h1 class="${H1}" tabindex="-1" id="page-title">${esc(p.name)} is already watered</h1>
+    <p class="mb-4 text-slate-700">${esc(p.h[0][1])} watered it today. If that was a mistake, you can undo it.</p>
+    <div class="flex gap-2"><button type="button" id="undo-${p.id}" data-undo="${p.id}" class="${B1}">Undo ${esc(p.name)}</button><a href="#today" id="back-today" class="${B2}">Back to Today</a></div>`;
+  return `
+    <p class="mb-4"><a href="#plant-${p.id}" id="back-details" class="text-indigo-800 underline">Back to ${esc(p.name)}</a></p>
+    <h1 class="${H1}" tabindex="-1" id="page-title">Mark ${esc(p.name)} as watered</h1>
+    <p class="mb-6 text-slate-700">Tell the flat who did it, so everyone knows whose turn is next.</p>
+    <form id="water-form" data-plant="${p.id}" novalidate class="max-w-md rounded-lg border border-slate-300 bg-white p-5">
+      ${state.werr ? `<div id="form-error" tabindex="-1" role="alert" class="mb-4 rounded-md border border-red-700 bg-red-50 p-3 text-sm text-red-900">Choose who watered the ${esc(p.name.toLowerCase())} before you confirm.</div>` : ''}
+      <fieldset ${state.werr ? 'aria-describedby="form-error"' : ''}>
+        <legend class="mb-2 font-semibold">Who watered it?</legend>
+        <div class="space-y-2">
+          ${FLATMATES.map(n => `<div class="flex items-center gap-2"><input type="radio" name="who" id="who-${n.toLowerCase()}" value="${n}" class="h-4 w-4 accent-indigo-700"><label for="who-${n.toLowerCase()}">${n}</label></div>`).join('')}
+        </div>
+      </fieldset>
+      <div class="mt-5 flex flex-wrap gap-2">
+        <button type="submit" id="confirm-watering" class="${B1}">Confirm watering</button>
+        <a href="#plant-${p.id}" id="cancel-watering" class="${B2}">Cancel watering</a>
+      </div>
+    </form>`;
+}
+
+/* ---------- SCREEN 4: ALL PLANTS (#plants) ---------- */
+function screenPlants() {
+  return `
+    <h1 class="${H1}" tabindex="-1" id="page-title">All plants</h1>
+    <p class="mb-6 text-slate-700">${plants.length} plants, shared by ${FLATMATES.length} flatmates.</p>
+    <div class="overflow-x-auto rounded-lg border border-slate-300 bg-white">
+      <table class="w-full min-w-[40rem] text-left text-sm">
+        <caption class="sr-only">All household plants and their watering schedules</caption>
+        <thead class="bg-slate-100"><tr>
+          <th scope="col" class="p-3">Plant</th><th scope="col" class="p-3">Room</th><th scope="col" class="p-3">Schedule</th><th scope="col" class="p-3">Last watered</th><th scope="col" class="p-3">Next due</th><th scope="col" class="p-3">Status</th><th scope="col" class="p-3"><span class="sr-only">Actions</span></th>
+        </tr></thead>
+        <tbody>${plants.map(p => `<tr class="border-t border-slate-200">
+          <th scope="row" class="p-3 font-semibold">${esc(p.name)}</th><td class="p-3">${esc(p.room)}</td><td class="p-3">${every(p.every)}</td><td class="p-3">${lastText(p)}</td><td class="p-3">${done(p) ? dstr(p.every) : nextText(p)}</td><td class="p-3">${badge(p)}</td>
+          <td class="p-3"><a href="#plant-${p.id}" id="view-${p.id}" class="${B2}">View ${esc(p.name)}</a></td></tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+/* ---------- SCREEN 5: ADD A NEW PLANT (#add-plant) ---------- */
+function screenAdd() {
+  const f = state.form || { v: { name:'', room:'', every:'', tip:'' }, e: {} };
+  const has = Object.keys(f.e).length > 0;
+  const field = (id, label, type, hint, req) => `
+    <div>
+      <label for="${id}" class="mb-1 block font-semibold">${label}${req ? '' : ' <span class="font-normal text-slate-700">(optional)</span>'}</label>
+      ${hint ? `<p id="${id}-hint" class="mb-1 text-sm text-slate-700">${hint}</p>` : ''}
+      ${type === 'textarea' ? `<textarea id="${id}" name="${id}" rows="3" class="w-full rounded-md border border-slate-500 p-2">${esc(f.v[id])}</textarea>`
+        : `<input id="${id}" name="${id}" type="${type}" ${type === 'number' ? 'min="1" max="60"' : ''} value="${esc(f.v[id])}" class="w-full rounded-md border ${f.e[id] ? 'border-red-700' : 'border-slate-500'} p-2" ${f.e[id] ? 'aria-invalid="true"' : ''} aria-describedby="${[hint ? id + '-hint' : '', f.e[id] ? id + '-err' : ''].join(' ').trim()}">`}
+      ${f.e[id] ? `<p id="${id}-err" class="mt-1 text-sm font-medium text-red-800">${f.e[id]}</p>` : ''}
+    </div>`;
+  return `
+    <h1 class="${H1}" tabindex="-1" id="page-title">Add a new plant</h1>
+    <p class="mb-6 text-slate-700">New plants show up under “Needs water today” until someone waters them.</p>
+    <form id="add-form" novalidate class="max-w-lg space-y-5 rounded-lg border border-slate-300 bg-white p-5">
+      ${has ? `<div id="form-error" tabindex="-1" role="alert" class="rounded-md border border-red-700 bg-red-50 p-3 text-sm text-red-900">There ${Object.keys(f.e).length === 1 ? 'is 1 problem' : 'are ' + Object.keys(f.e).length + ' problems'} with this form. Fix the fields marked below, then try again.</div>` : ''}
+      ${field('name', 'Plant name', 'text', '', true)}
+      ${field('room', 'Room', 'text', 'For example, Hallway or Kitchen windowsill.', true)}
+      ${field('every', 'Water every how many days?', 'number', 'Enter a whole number from 1 to 60.', true)}
+      ${field('tip', 'Care tip', 'textarea', '', false)}
+      <div class="flex flex-wrap gap-2">
+        <button type="submit" id="save-plant" class="${B1}">Save plant</button>
+        <a href="#plants" id="cancel-add" class="${B2}">Cancel adding</a>
+      </div>
+    </form>`;
+}
+
+/* ===== ROUTER + RENDER ===== */
+function route() {
+  const h = location.hash.slice(1) || 'today';
+  let m;
+  if (h === 'today') return { k: 'today', html: screenToday() };
+  if (h === 'plants') return { k: 'plants', html: screenPlants() };
+  if (h === 'add-plant') return { k: 'add-plant', html: screenAdd() };
+  if ((m = h.match(/^plant-(.+)$/)) && get(m[1])) return { k: 'plants', html: screenDetails(get(m[1])) };
+  if ((m = h.match(/^water-(.+)$/)) && get(m[1])) return { k: 'today', html: screenWater(get(m[1])) };
+  return { k: 'today', html: screenToday() };
+}
+function render() {
+  const r = route();
+  const nav = [['today','Today'],['plants','All plants'],['add-plant','Add plant']];
+  $('#nav').innerHTML = nav.map(([k, t]) => `<li><a href="#${k}" id="nav-${k}" ${r.k === k ? 'aria-current="page"' : ''} class="block rounded-md px-3 py-2 text-sm font-medium ${r.k === k ? 'bg-indigo-100 text-indigo-900' : 'text-slate-800 hover:bg-slate-100'}">${t}</a></li>`).join('')
+    + `<li><button type="button" id="nav-household" data-nope class="block rounded-md px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100">Household</button></li>`;
+  const banner = state.msg ? `<div id="banner" tabindex="-1" role="status" class="mb-6 rounded-md border ${state.msg.t === 'ok' ? 'border-green-700 bg-green-50 text-green-900' : 'border-slate-500 bg-white text-slate-900'} p-3 text-sm font-medium">${esc(state.msg.text)}</div>` : '';
+  $('#app').innerHTML = banner + r.html;
+  const target = $('#banner') || $('#form-error') || $('#page-title');
+  state.msg = null;
+  if (target) target.focus({ preventScroll: false });
+}
+window.addEventListener('hashchange', () => { state.werr = false; state.form = null; state.msg = state.msg; render(); window.scrollTo(0, 0); });
+
+/* ===== ACTIONS ===== */
+document.addEventListener('click', e => {
+  const undo = e.target.closest('[data-undo]');
+  const nope = e.target.closest('[data-nope]');
+  const reset = e.target.closest('#reset-prototype');
+  if (e.target.closest('#skip-link')) { $('#main').focus(); return; }
+  if (undo) { // correct a mistake: remove today's watering
+    const p = get(undo.dataset.undo);
+    if (p && done(p)) p.h.shift();
+    state.msg = { t: 'ok', text: p.name + ' is back on the list. The watering was undone.' };
+    render(); return;
+  }
+  if (nope) { state.msg = { t: 'info', text: NOT_YET }; render(); return; }
+  if (reset) {
+    e.preventDefault(); plants = seed(); state = { msg: null, werr: false, form: null };
+    if (location.hash === '#today') render(); else location.hash = '#today';
+  }
+});
+document.addEventListener('submit', e => {
+  e.preventDefault();
+  if (e.target.id === 'water-form') {
+    const p = get(e.target.dataset.plant);
+    const who = e.target.querySelector('input[name=who]:checked');
+    if (!who) { state.werr = true; render(); return; } // validation failed: stay here
+    p.h.unshift([0, who.value]);
+    state.msg = { t: 'ok', text: p.name + ' watered by ' + who.value + '. It has moved to Done today.' };
+    location.hash = '#today';
+  }
+  if (e.target.id === 'add-form') {
+    const el = e.target.elements;
+    const v = { name: el.name.value.trim(), room: el.room.value.trim(), every: el.every.value.trim(), tip: el.tip.value.trim() };
+    const err = {}, n = Number(v.every);
+    if (!v.name) err.name = 'Enter a name for the plant, for example “Rubber plant”.';
+    else if (plants.some(p => p.name.toLowerCase() === v.name.toLowerCase())) err.name = 'There is already a plant called “' + esc(v.name) + '”. Use a different name.';
+    if (!v.room) err.room = 'Enter the room where the plant lives.';
+    if (!v.every) err.every = 'Enter how many days between waterings.';
+    else if (!Number.isInteger(n) || n < 1 || n > 60) err.every = 'Enter a whole number between 1 and 60.';
+    if (Object.keys(err).length) { state.form = { v, e: err }; render(); return; }
+    let id = v.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'plant', base = id, i = 2;
+    while (get(id)) id = base + '-' + i++;
+    plants.push({ id, name: v.name, room: v.room, every: n, color: 'bg-slate-600', tip: v.tip || 'Water when the top of the soil feels dry.', h: [] });
+    state.msg = { t: 'ok', text: v.name + ' has been added. It needs its first watering.' };
+    location.hash = '#plants';
+  }
+});
+render();
+</script>
+</body>
+</html>
